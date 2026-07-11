@@ -3,7 +3,7 @@ import "./globals.css";
 import { JetBrains_Mono, Oxanium } from "next/font/google";
 import { cn } from "@/lib/utils";
 import { ThemeProvider } from "@/components/providers/theme-provider"
-import { QuaryProvider } from "@/components/providers/quary-provider";
+import { QueryProvider } from "@/components/providers/query-provider";
 
 const oxaniumHeading = Oxanium({subsets:['latin'],variable:'--font-heading'});
 
@@ -25,7 +25,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col"> 
 
-        <QuaryProvider>
+        <QueryProvider>
         
            <ThemeProvider
             attribute="class"
@@ -35,7 +35,7 @@ export default function RootLayout({
           >
             {children}
           </ThemeProvider>
-          </QuaryProvider>
+          </QueryProvider>
           
           </body>
     </html>
