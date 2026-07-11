@@ -3,3 +3,4 @@ export default function Home() {
     <h1>hello from mg7</h1>
   );
 }
+
