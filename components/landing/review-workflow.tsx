@@ -76,8 +76,6 @@ interface CommentStyle {
    Data
 ============================================================================ */
 
-const STORAGE_KEY = "mg7-review-workflow-played";
-
 /** Timing (ms) for the automatic, self-advancing timeline. */
 const TIMING = {
   bootDelay: 450, // idle -> opening
@@ -253,47 +251,6 @@ function usePrefersReducedMotion(): boolean {
     () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     () => false,
   );
-}
-
-const PLAYED_EVENT = "mg7:review-played";
-
-function readPlayed(): boolean {
-  try {
-    return localStorage.getItem(STORAGE_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
-
-/**
- * True once per browser after the animation has been watched to completion.
- * Backed by `useSyncExternalStore` so the value is SSR-safe and the "watched"
- * write propagates without a synchronous setState in an effect.
- */
-function useHasPlayed(): [boolean, () => void] {
-  const played = useSyncExternalStore(
-    (onChange) => {
-      window.addEventListener(PLAYED_EVENT, onChange);
-      window.addEventListener("storage", onChange);
-      return () => {
-        window.removeEventListener(PLAYED_EVENT, onChange);
-        window.removeEventListener("storage", onChange);
-      };
-    },
-    readPlayed,
-    () => false,
-  );
-
-  const markPlayed = useCallback(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, "true");
-    } catch {
-      /* ignore */
-    }
-    window.dispatchEvent(new Event(PLAYED_EVENT));
-  }, []);
-
-  return [played, markPlayed];
 }
 
 /**
@@ -499,17 +456,23 @@ const AmbientBackground = memo(function AmbientBackground({
 
 export function ReviewWorkflow() {
   const reducedMotion = usePrefersReducedMotion();
-  const [hasPlayed, markPlayed] = useHasPlayed();
 
   const cardRef = useRef<HTMLDivElement>(null);
-  const inView = useInView(cardRef, { once: true, amount: 0.5 });
+  // Trigger as soon as any meaningful slice of the card enters the viewport, so
+  // the sequence reliably starts even when the card is stacked below the hero
+  // (e.g. on mobile) and never reaches 50% visibility on load.
+  const inView = useInView(cardRef, { once: true, amount: 0.15 });
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [scannedCount, setScannedCount] = useState(0);
   const [commentIndex, setCommentIndex] = useState(0);
 
-  /** Whether we should short-circuit straight to the finished state. */
-  const skip = reducedMotion || hasPlayed;
+  /**
+   * Whether we should short-circuit straight to the finished state. The
+   * animation now plays on every load; only a user's reduced-motion preference
+   * skips it.
+   */
+  const skip = reducedMotion;
 
   // --------------------------------------------------------------------------
   // Time-based transitions declared in PHASE_FLOW. Gated on `inView`, so the
@@ -554,13 +517,6 @@ export function ReviewWorkflow() {
     const id = window.setTimeout(() => setPhase("approved"), TIMING.approveHold);
     return () => window.clearTimeout(id);
   }, [skip, phase, commentIndex]);
-
-  // --------------------------------------------------------------------------
-  // Persist "watched" once we reach the terminal state naturally.
-  // --------------------------------------------------------------------------
-  useEffect(() => {
-    if (phase === "merged" && !skip) markPlayed();
-  }, [phase, skip, markPlayed]);
 
   // --------------------------------------------------------------------------
   // Effective (rendered) view state. When skipping, everything reads as the
