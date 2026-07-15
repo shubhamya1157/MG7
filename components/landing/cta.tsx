@@ -1,4 +1,4 @@
-// import { GitHubSignInButton } from "@/components/auth/github-sign-in-button";
+import { GitHubSignInButton } from "@/components/auth/github-sign-in-button";
 
 /**
  * Closing call-to-action band. A glowing bordered panel that repeats the
@@ -22,7 +22,7 @@ export function CallToAction() {
             PR in real time.
           </p>
           <div className="mt-8 flex justify-center">
-            {/* <GitHubSignInButton size="lg" label="Start with GitHub" /> */}
+            <GitHubSignInButton size="lg" label="Start with GitHub" />
           </div>
         </div>
       </div>

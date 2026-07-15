@@ -1,7 +1,9 @@
 import Link from "next/link";
-import{GitPullRequestIcon} from "@phosphor-icons/react/dist/ssr";
+import { GitPullRequestIcon } from "@phosphor-icons/react/dist/ssr";
 import { ThemeToggle } from "@/components/theme-toggle";
-// import { GitHubSignInButton } from "@/components/auth/github-sign-in-button";
+import { buttonVariants } from "@/components/ui/button";
+import { ROUTES } from "@/lib/routes";
+import { cn } from "@/lib/utils";
 
 
 const NAV_LINKS = [
@@ -42,7 +44,9 @@ export function Navbar() {
 
         <div className="flex items-center gap-1.5">
           <ThemeToggle />
-          {/* <GitHubSignInButton  label="Sign in" /> */}
+          <Link href={ROUTES.signIn} className={cn(buttonVariants())}>
+            Sign in
+          </Link>
         </div>
       </nav>
     </header>

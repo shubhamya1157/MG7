@@ -1,4 +1,4 @@
-// import { GitHubSignInButton } from "@/components/auth/github-sign-in-button";
+import { GitHubSignInButton } from "@/components/auth/github-sign-in-button";
 import { ReviewWorkflow } from "@/components/landing/review-workflow";
 
 
@@ -34,13 +34,13 @@ export function Hero() {
 
           {/* Primary + secondary CTA */}
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row lg:justify-start">
-            {/* <GitHubSignInButton size="lg" label="Continue with GitHub" />
+            <GitHubSignInButton size="lg" label="Continue with GitHub" />
             <a
               href="#how"
               className="text-sm font-medium text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
-            > */}
-              {/* See how it works ↓
-            </a> */}
+            >
+              See how it works ↓
+            </a>
           </div>
 
           {/* Trust line */}

@@ -22,6 +22,7 @@ model User {
   updatedAt     DateTime  @updatedAt
   sessions      Session[]
   accounts      Account[]
+  githubInstallation GithubInstallation?
 
   @@unique([email])
   @@map("user")
@@ -73,4 +74,41 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+
+model GithubInstallation {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  installationId Int      // GitHub's numeric installation id - passed to app.getInstallationOctokit()
+  accountLogin   String?
+  accountType    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("github_installation")
+}
+
+model PullRequest {
+  id             String    @id @default(cuid())
+  // The GitHub App installation that delivered the event — lets us mint an
+  // installation token later to post the review back onto the PR.
+  installationId Int
+  repoFullName   String // "owner/repo"
+  prNumber       Int
+  title          String
+  authorLogin    String?
+  headSha        String // latest commit on the PR branch; changes on each push
+  baseBranch     String
+  // Lifecycle: pending → processing → reviewed (or rate_limited / failed).
+  status         String    @default("pending")
+  reviewComment  String? // AI-generated markdown, filled in once the review runs
+  reviewedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // One row per PR — re-pushes upsert onto the same record by (repo, number).
+  @@unique([repoFullName, prNumber])
+  @@map("pull_request")
 }
