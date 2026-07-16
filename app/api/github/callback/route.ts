@@ -1,21 +1,4 @@
-/**
- * GET /api/github/callback
- *
- * GitHub redirects here after a user installs (or reconfigures) the App. The
- * request carries `?installation_id=…` (and `?state=<userId>`, which GitHub
- * echoes from the install URL we built).
- *
- * Flow:
- *   1. Require a session. If the user isn't signed in (e.g. they installed the
- *      App in a fresh browser), bounce through sign-in and come *back* to this
- *      same callback so no installation is dropped.
- *   2. With a session + an installation id, persist the installation against
- *      the current user.
- *   3. Land the user on the GitHub dashboard page, now showing "Connected".
- */
-
 import { redirect } from "next/navigation";
-
 import { getSession } from "@/lib/get-session";
 import { ROUTES } from "@/lib/routes";
 import { saveInstallation } from "@/app/dashboard/github/server/installation";
