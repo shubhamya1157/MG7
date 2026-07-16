@@ -1,16 +1,3 @@
-/**
- * Centralised, validated access to server-side environment variables.
- *
- * Importing this module validates every required secret exactly once and throws
- * a single aggregated error listing everything that is missing or malformed —
- * so a misconfigured deploy fails loudly and early instead of surfacing as a
- * confusing runtime error deep inside the auth flow.
- *
- * SERVER-ONLY. It reads secrets that must never reach the browser bundle, so it
- * guards against accidental client imports. Client code should read the small
- * set of `NEXT_PUBLIC_*` values from `process.env` directly.
- */
-
 if (typeof window !== "undefined") {
   throw new Error(
     "lib/env.ts is server-only and must not be imported from client code.",
