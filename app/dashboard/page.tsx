@@ -17,10 +17,15 @@ import { formatDistanceToNow } from "date-fns";
 
 import { getSession } from "@/lib/get-session";
 import { getGitHubConnection } from "@/lib/github";
-import { ROUTES } from "@/lib/routes";
+import { ROUTES, reviewDetailRoute } from "@/lib/routes";
 import { prisma } from "@/lib/db";
 import type { PullRequest } from "@/lib/generated/prisma/client";
 import { statusBadge, type statusBadgeClass } from "@/lib/status-style";
+import {
+  DashboardCharts,
+  type ActivityPoint,
+  type StatusSlice,
+} from "@/app/dashboard/charts";
 import {
   Card,
   CardContent,
@@ -31,6 +36,7 @@ import {
 import { Button } from "@/components/ui/button";
 
 const LATEST_REVIEWS_LIMIT = 5;
+const ACTIVITY_DAYS = 30;
 
 /** Map a PullRequest.status to the shared badge tone. */
 function toneFor(status: string): keyof typeof statusBadgeClass {
@@ -41,6 +47,8 @@ function toneFor(status: string): keyof typeof statusBadgeClass {
       return "warning";
     case "failed":
       return "danger";
+    case "quota_exceeded":
+      return "warning";
     default:
       return "neutral";
   }
@@ -59,6 +67,8 @@ export default async function DashboardPage() {
   let pullRequests: PullRequest[] = [];
   let reviewedCount = 0;
   let issuesCount = 0;
+  let activity: ActivityPoint[] = [];
+  let statuses: StatusSlice[] = [];
 
   try {
     const installation = await prisma.githubInstallation.findUnique({
@@ -66,13 +76,60 @@ export default async function DashboardPage() {
     });
 
     if (installation) {
+      // Bounded list — the page only shows LATEST_REVIEWS_LIMIT rows anyway.
       pullRequests = await prisma.pullRequest.findMany({
         where: { installationId: installation.installationId },
         orderBy: { updatedAt: "desc" },
+        take: LATEST_REVIEWS_LIMIT,
+      });
+
+      // Aggregate counts in the DB rather than filtering fetched rows.
+      const grouped = await prisma.pullRequest.groupBy({
+        by: ["status"],
+        where: { installationId: installation.installationId },
+        _count: { _all: true },
+      });
+      statuses = grouped
+        .map((group) => ({ status: group.status, count: group._count._all }))
+        .sort((a, b) => b.count - a.count);
+      reviewedCount =
+        statuses.find((slice) => slice.status === "reviewed")?.count ?? 0;
+
+      // Reviews-per-day for the activity chart. One bounded query; bucketing
+      // happens in JS keyed by local date string.
+      const since = new Date();
+      since.setDate(since.getDate() - (ACTIVITY_DAYS - 1));
+      since.setHours(0, 0, 0, 0);
+
+      const recentReviews = await prisma.pullRequest.findMany({
+        where: {
+          installationId: installation.installationId,
+          reviewedAt: { gte: since },
+        },
+        select: { reviewedAt: true },
+      });
+
+      const byDay = new Map<string, number>();
+      for (const review of recentReviews) {
+        if (!review.reviewedAt) continue;
+        const key = review.reviewedAt.toISOString().slice(0, 10);
+        byDay.set(key, (byDay.get(key) ?? 0) + 1);
+      }
+      activity = Array.from({ length: ACTIVITY_DAYS }, (_, i) => {
+        const day = new Date(since);
+        day.setDate(since.getDate() + i);
+        const key = day.toISOString().slice(0, 10);
+        return {
+          date: key,
+          label: day.toLocaleDateString("en-GB", {
+            day: "numeric",
+            month: "short",
+          }),
+          reviews: byDay.get(key) ?? 0,
+        };
       });
     }
 
-    reviewedCount = pullRequests.filter((pr) => pr.status === "reviewed").length;
     issuesCount = pullRequests.reduce((acc, pr) => {
       if (!pr.reviewComment) return acc;
       const lines = pr.reviewComment.split("\n");
@@ -121,6 +178,9 @@ export default async function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      {/* Activity + status charts (data computed above, rendered client-side) */}
+      <DashboardCharts activity={activity} statuses={statuses} />
 
       {/* Empty state / next step */}
       <Card className="mt-6">
@@ -199,7 +259,7 @@ export default async function DashboardPage() {
                 {latestReviews.map((pr) => (
                   <Link
                     key={pr.id}
-                    href={ROUTES.dashboardReviews}
+                    href={reviewDetailRoute(pr.id)}
                     className="group flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0"
                   >
                     <div className="flex min-w-0 items-center gap-3">

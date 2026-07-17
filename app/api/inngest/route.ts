@@ -9,9 +9,9 @@
 import { serve } from "inngest/next";
 
 import { inngest } from "@/lib/inngest";
-import { reviewPullRequest } from "./functions";
+import { reviewPullRequest, syncRepoCodebase } from "./functions";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [reviewPullRequest],
+  functions: [reviewPullRequest, syncRepoCodebase],
 });

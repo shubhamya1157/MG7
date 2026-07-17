@@ -1,10 +1,12 @@
 /**
  * /dashboard/repositories — the repositories visible to the signed-in user.
  *
- * Read-only for now: cards link out to GitHub. The list comes from the user's
- * OAuth token via `getGitHubConnection()` (most recently updated first); which
- * repos MG7 actually *reviews* is governed by the GitHub App installation,
- * managed on /dashboard/github.
+ * Cards link out to GitHub, and each repo can be "synced": its codebase is
+ * indexed into Pinecone (background Inngest job) so PR reviews get retrieval
+ * context beyond the diff. The list comes from the user's OAuth token via
+ * `getGitHubConnection()` (most recently updated first); which repos MG7
+ * actually *reviews* is governed by the GitHub App installation, managed on
+ * /dashboard/github.
  */
 
 import type { Metadata } from "next";
@@ -13,7 +15,9 @@ import { BooksIcon, GithubLogoIcon } from "@phosphor-icons/react/dist/ssr";
 import { formatDistanceToNow } from "date-fns";
 
 import { getGitHubConnection } from "@/lib/github";
+import { prisma } from "@/lib/db";
 import { ROUTES } from "@/lib/routes";
+import { SyncRepoButton } from "@/app/dashboard/repositories/sync-repo-button";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -30,6 +34,20 @@ export const metadata: Metadata = {
 
 export default async function RepositoriesPage() {
   const github = await getGitHubConnection();
+
+  // Sync status per repo, for the button label (Sync / Syncing… / Re-sync).
+  let syncStatusByRepo: Record<string, string> = {};
+  if (github.repos.length > 0) {
+    const syncs = await prisma.repoSync.findMany({
+      where: {
+        repoFullName: { in: github.repos.map((repo) => repo.full_name) },
+      },
+      select: { repoFullName: true, status: true },
+    });
+    syncStatusByRepo = Object.fromEntries(
+      syncs.map((sync) => [sync.repoFullName, sync.status]),
+    );
+  }
 
   return (
     <main className="mx-auto w-full max-w-5xl px-6 py-10">
@@ -52,7 +70,7 @@ export default async function RepositoriesPage() {
           <CardDescription>
             {github.error
               ? "GitHub data could not be loaded with the current authorization."
-              : "MG7 reviews pull requests on repositories covered by the GitHub App installation."}
+              : "Sync a repository to index its codebase — reviews then see related code beyond the diff."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -67,28 +85,37 @@ export default async function RepositoriesPage() {
           ) : github.repos.length > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2">
               {github.repos.map((repo) => (
-                <a
+                <div
                   key={repo.id}
-                  href={repo.html_url}
-                  target="_blank"
-                  rel="noreferrer"
                   className="rounded-md border border-border p-4 transition-colors hover:bg-muted/60"
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="truncate font-medium">
+                    <a
+                      href={repo.html_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="truncate font-medium hover:underline"
+                    >
                       {repo.full_name}
-                    </span>
+                    </a>
                     <span className="shrink-0 rounded-sm bg-muted px-2 py-1 text-xs text-muted-foreground">
                       {repo.private ? "Private" : "Public"}
                     </span>
                   </div>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Updated{" "}
-                    {formatDistanceToNow(new Date(repo.updated_at), {
-                      addSuffix: true,
-                    })}
-                  </p>
-                </a>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <p className="text-xs text-muted-foreground">
+                      Updated{" "}
+                      {formatDistanceToNow(new Date(repo.updated_at), {
+                        addSuffix: true,
+                      })}
+                    </p>
+                    <SyncRepoButton
+                      repoFullName={repo.full_name}
+                      branch={repo.default_branch}
+                      syncStatus={syncStatusByRepo[repo.full_name] ?? null}
+                    />
+                  </div>
+                </div>
               ))}
             </div>
           ) : (

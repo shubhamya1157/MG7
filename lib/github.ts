@@ -11,7 +11,7 @@ type GitHubProfile = {
   html_url: string;
 };
 
-//type diclaration  in which formate i want user repo details 
+//type diclaration  in which formate i want user repo details
 type GitHubRepo = {
   id: number;
   name: string;
@@ -19,6 +19,8 @@ type GitHubRepo = {
   private: boolean;
   html_url: string;
   updated_at: string;
+  // branch the repo-sync (RAG indexing) job reads the file tree from
+  default_branch: string;
 };
 
 export type GitHubConnection = {

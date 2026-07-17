@@ -3,31 +3,42 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { nextCookies } from "better-auth/next-js";
 
 import { prisma } from "@/lib/db";
-import { serverEnv } from "@/lib/env";
+
+// read auth config straight from process.env (lib/env.ts was removed);
+// fail fast at startup if any required value is missing
+const betterAuthUrl = process.env.BETTER_AUTH_URL;
+const betterAuthSecret = process.env.BETTER_AUTH_SECRET;
+const githubClientId = process.env.GITHUB_CLIENT_ID;
+const githubClientSecret = process.env.GITHUB_CLIENT_SECRET;
+
+if (!betterAuthUrl) throw new Error("Missing BETTER_AUTH_URL");
+if (!betterAuthSecret) throw new Error("Missing BETTER_AUTH_SECRET");
+if (!githubClientId) throw new Error("Missing GITHUB_CLIENT_ID");
+if (!githubClientSecret) throw new Error("Missing GITHUB_CLIENT_SECRET");
 
 
 export const auth = betterAuth({
- 
+
   //after authorised by github where i send user
-  baseURL: serverEnv.BETTER_AUTH_URL,
-  //TO verify 
-  secret: serverEnv.BETTER_AUTH_SECRET,
+  baseURL: betterAuthUrl,
+  //TO verify
+  secret: betterAuthSecret,
 
   //where to stroe sesson 
   database: prismaAdapter(prisma, {
     provider: "postgresql",
   }),
 
-//To prevent csrf attack 
-  trustedOrigins: [serverEnv.BETTER_AUTH_URL],
+//To prevent csrf attack
+  trustedOrigins: [betterAuthUrl],
 
   socialProviders: {
     github: {
       //use to erify application not user user is verified by github 
       //and client id is for who i am
       //client secret for proving it 
-      clientId: serverEnv.GITHUB_CLIENT_ID,
-      clientSecret: serverEnv.GITHUB_CLIENT_SECRET,
+      clientId: githubClientId,
+      clientSecret: githubClientSecret,
 
 
       //asking to the permision of sharing repo it come in github to share which repo you want to give permission
@@ -62,7 +73,7 @@ export const auth = betterAuth({
 
   //Only send cookies when https only not in http
   advanced: {
-    useSecureCookies: serverEnv.isProduction,
+    useSecureCookies: process.env.NODE_ENV === "production",
   },
 
   //better auth and nextjs internal so they can read and write easyly

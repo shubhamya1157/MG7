@@ -5,19 +5,23 @@
  * `pr.review.requested` event; the Inngest function then walks the row through
  * pending → processing → reviewed (or failed) and stores the AI review. This
  * page is the read side of that pipeline: status counts up top, then each PR
- * as an expandable row revealing the stored review comment.
+ * as a row linking to its full review page.
  */
 
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { GitPullRequestIcon, GithubLogoIcon } from "@phosphor-icons/react/dist/ssr";
+import {
+  CaretRightIcon,
+  GitPullRequestIcon,
+  GithubLogoIcon,
+} from "@phosphor-icons/react/dist/ssr";
 import { formatDistanceToNow } from "date-fns";
 
 import { getSession } from "@/lib/get-session";
 import { prisma } from "@/lib/db";
 import type { PullRequest } from "@/lib/generated/prisma/client";
-import { ROUTES } from "@/lib/routes";
+import { ROUTES, reviewDetailRoute } from "@/lib/routes";
 import { statusBadge, type statusBadgeClass } from "@/lib/status-style";
 import { cn } from "@/lib/utils";
 import { ReviewsAutoRefresh } from "@/app/dashboard/reviews/reviews-auto-refresh";
@@ -29,11 +33,21 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 
 export const metadata: Metadata = {
   title: "Reviews · MG7",
   description: "Pull requests automatically reviewed by MG7.",
 };
+
+const PAGE_SIZE = 25;
 
 /** Map a PullRequest.status to the shared badge tone. */
 function toneFor(status: string): keyof typeof statusBadgeClass {
@@ -44,6 +58,10 @@ function toneFor(status: string): keyof typeof statusBadgeClass {
       return "warning";
     case "failed":
       return "danger";
+    case "quota_exceeded":
+      return "warning";
+    case "closed":
+      return "info";
     default:
       return "neutral";
   }
@@ -55,9 +73,14 @@ const iconTileClass: Record<string, string> = {
   processing:
     "bg-amber-500/10 border-amber-500/30 text-amber-500 animate-pulse",
   failed: "bg-red-500/10 border-red-500/30 text-red-500",
+  closed: "bg-sky-500/10 border-sky-500/30 text-sky-500",
 };
 
-export default async function ReviewsPage() {
+export default async function ReviewsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
   // Layout already gated the session; re-check anyway (cheap — the request is
   // memoized) so this page never renders without a user even if it moves.
   const session = await getSession();
@@ -66,30 +89,52 @@ export default async function ReviewsPage() {
   }
   const userId = session.user.id;
 
+  const { page: pageParam } = await searchParams;
+  const requestedPage = Math.max(1, Number(pageParam) || 1);
+
   let pullRequests: PullRequest[] = [];
+  // Counts come from a groupBy over ALL of the user's PRs — correct even
+  // though the list below is paginated.
+  const counts = { total: 0, reviewed: 0, inFlight: 0, failed: 0 };
+  let totalPages = 1;
+  let page = requestedPage;
+
   try {
     const installation = await prisma.githubInstallation.findUnique({
       where: { userId },
       select: { installationId: true },
     });
     if (installation) {
+      const grouped = await prisma.pullRequest.groupBy({
+        by: ["status"],
+        where: { installationId: installation.installationId },
+        _count: { _all: true },
+      });
+      for (const group of grouped) {
+        const n = group._count._all;
+        counts.total += n;
+        if (group.status === "reviewed") counts.reviewed += n;
+        if (group.status === "pending" || group.status === "processing")
+          counts.inFlight += n;
+        if (group.status === "failed") counts.failed += n;
+      }
+
+      totalPages = Math.max(1, Math.ceil(counts.total / PAGE_SIZE));
+      page = Math.min(requestedPage, totalPages);
+
       pullRequests = await prisma.pullRequest.findMany({
         where: { installationId: installation.installationId },
         orderBy: { updatedAt: "desc" },
+        skip: (page - 1) * PAGE_SIZE,
+        take: PAGE_SIZE,
       });
     }
   } catch (error) {
     console.error("Failed to load pull requests for the reviews page:", error);
   }
 
-  const counts = {
-    total: pullRequests.length,
-    reviewed: pullRequests.filter((pr) => pr.status === "reviewed").length,
-    inFlight: pullRequests.filter(
-      (pr) => pr.status === "pending" || pr.status === "processing",
-    ).length,
-    failed: pullRequests.filter((pr) => pr.status === "failed").length,
-  };
+  const pageHref = (p: number) =>
+    p <= 1 ? ROUTES.dashboardReviews : `${ROUTES.dashboardReviews}?page=${p}`;
 
   return (
     <main className="mx-auto w-full max-w-5xl px-6 py-10">
@@ -127,7 +172,7 @@ export default async function ReviewsPage() {
         <CardHeader>
           <CardTitle>All reviews</CardTitle>
           <CardDescription>
-            Expand a pull request to read the AI-generated review.
+            Open a pull request to read the AI-generated review.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -155,29 +200,33 @@ export default async function ReviewsPage() {
           ) : (
             <div className="divide-y divide-border/60">
               {pullRequests.map((pr) => (
-                <details key={pr.id} className="group py-4 first:pt-0 last:pb-0">
-                  <summary className="flex cursor-pointer list-none items-start justify-between gap-4 [&::-webkit-details-marker]:hidden">
-                    <div className="flex items-start gap-3">
-                      <span
-                        className={cn(
-                          "mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg border",
-                          iconTileClass[pr.status] ??
-                            "border-border bg-muted text-muted-foreground",
-                        )}
-                      >
-                        <GitPullRequestIcon className="size-4" />
+                <Link
+                  key={pr.id}
+                  href={reviewDetailRoute(pr.id)}
+                  className="group flex items-start justify-between gap-4 py-4 first:pt-0 last:pb-0"
+                >
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={cn(
+                        "mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg border",
+                        iconTileClass[pr.status] ??
+                          "border-border bg-muted text-muted-foreground",
+                      )}
+                    >
+                      <GitPullRequestIcon className="size-4" />
+                    </span>
+                    <div className="flex flex-col">
+                      <span className="pr-2 text-sm font-medium transition-colors group-hover:text-primary">
+                        {pr.title}
                       </span>
-                      <div className="flex flex-col">
-                        <span className="pr-2 text-sm font-medium transition-colors group-hover:text-primary">
-                          {pr.title}
-                        </span>
-                        <span className="mt-0.5 text-xs text-muted-foreground">
-                          {pr.repoFullName} #{pr.prNumber} • by @
-                          {pr.authorLogin || "unknown"}
-                        </span>
-                      </div>
+                      <span className="mt-0.5 text-xs text-muted-foreground">
+                        {pr.repoFullName} #{pr.prNumber} • by @
+                        {pr.authorLogin || "unknown"}
+                      </span>
                     </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <div className="flex flex-col items-end gap-1.5">
                       <span className={statusBadge(toneFor(pr.status))}>
                         {pr.status}
                       </span>
@@ -188,15 +237,37 @@ export default async function ReviewsPage() {
                         )}
                       </span>
                     </div>
-                  </summary>
-                  {pr.status === "reviewed" && pr.reviewComment && (
-                    <div className="mt-4 max-h-[400px] overflow-x-auto rounded-lg border border-border/40 bg-muted/40 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap text-foreground select-all">
-                      {pr.reviewComment}
-                    </div>
-                  )}
-                </details>
+                    <CaretRightIcon className="mt-2 size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                  </div>
+                </Link>
               ))}
             </div>
+          )}
+
+          {totalPages > 1 && (
+            <Pagination className="mt-6">
+              <PaginationContent>
+                {page > 1 && (
+                  <PaginationItem>
+                    <PaginationPrevious href={pageHref(page - 1)} />
+                  </PaginationItem>
+                )}
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+                  (p) => (
+                    <PaginationItem key={p}>
+                      <PaginationLink href={pageHref(p)} isActive={p === page}>
+                        {p}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ),
+                )}
+                {page < totalPages && (
+                  <PaginationItem>
+                    <PaginationNext href={pageHref(page + 1)} />
+                  </PaginationItem>
+                )}
+              </PaginationContent>
+            </Pagination>
           )}
         </CardContent>
       </Card>

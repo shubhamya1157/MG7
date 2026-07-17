@@ -1,5 +1,4 @@
 import { App } from "octokit";
-
 let githubApp: App | null = null;
 
 export function getGithubApp(): App {

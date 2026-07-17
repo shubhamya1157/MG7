@@ -1,15 +1,16 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
 import { PrismaClient } from "./generated/prisma/client";
-import { serverEnv } from "@/lib/env";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
 function createPrismaClient(): PrismaClient {
-  // `serverEnv` has already validated DATABASE_URL is present and non-empty.
-  const url = serverEnv.DATABASE_URL;
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error("Missing DATABASE_URL");
+  }
 
   // `keepAlive` holds the TCP socket open between queries so the OAuth
   // callback's user/account/session writes skip a fresh connect handshake —

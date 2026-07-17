@@ -10,8 +10,8 @@
  * before the payload is even parsed. An unverified body never touches the DB.
  */
 
-import { serverEnv } from "@/lib/env";
 import { inngest, prReviewRequested } from "@/lib/inngest";
+import { prisma } from "@/lib/db";
 import { getGithubApp } from "@/app/dashboard/github/utils/github-app";
 import { savePullRequest } from "@/app/dashboard/github/server/save-pull-request";
 
@@ -51,7 +51,7 @@ async function isSignatureValid(
 export async function handleGithubWebhook(request: Request): Promise<Response> {
   // Misconfiguration guard: without the shared secret we cannot authenticate
   // deliveries, and processing unauthenticated webhooks is worse than downtime.
-  if (!serverEnv.GITHUB_WEBHOOK_SECRET) {
+  if (!process.env.GITHUB_WEBHOOK_SECRET) {
     console.error(
       "GITHUB_WEBHOOK_SECRET is not set — rejecting webhook delivery.",
     );
@@ -75,6 +75,19 @@ export async function handleGithubWebhook(request: Request): Promise<Response> {
   }
 
   const event = JSON.parse(payload) as PullRequestWebhookPayload;
+
+  // A closed PR (merged or not) just flips the stored status — no review
+  // event, and `updateMany` (not upsert) so PRs we never tracked stay absent.
+  if (event.action === "closed") {
+    await prisma.pullRequest.updateMany({
+      where: {
+        repoFullName: event.repository.full_name,
+        prNumber: event.pull_request.number,
+      },
+      data: { status: "closed" },
+    });
+    return Response.json({ received: true });
+  }
 
   if (!REVIEWABLE_ACTIONS.includes(event.action as (typeof REVIEWABLE_ACTIONS)[number])) {
     return Response.json({ received: true });

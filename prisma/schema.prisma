@@ -23,6 +23,7 @@ model User {
   sessions      Session[]
   accounts      Account[]
   githubInstallation GithubInstallation?
+  settings      UserSettings?
 
   @@unique([email])
   @@map("user")
@@ -87,7 +88,44 @@ model GithubInstallation {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  // Review-time reverse lookup: webhook events carry only the numeric
+  // installation id, and quota/BYOK checks need the owning user from it.
+  @@index([installationId])
   @@map("github_installation")
+}
+
+// Per-user preferences that don't belong on the auth-owned User model.
+// Currently: an optional user-supplied OpenRouter key (BYOK) — stored
+// encrypted (AES-256-GCM), with only the last 4 characters kept in the clear
+// for display.
+model UserSettings {
+  id                      String   @id @default(cuid())
+  userId                  String   @unique
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  openrouterKeyCiphertext String? // "iv:tag:ciphertext", each part base64
+  openrouterKeyLast4      String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@map("user_settings")
+}
+
+// One row per repo whose codebase has been indexed into Pinecone for RAG
+// context. Lifecycle: pending → syncing → synced (or failed). `syncedAt`
+// doubles as "has ever synced" — a re-sync deletes the old vectors first.
+model RepoSync {
+  id             String    @id @default(cuid())
+  installationId Int // GitHub App installation used to read the repo's files
+  repoFullName   String // "owner/repo"
+  branch         String // branch whose tree was indexed (usually the default)
+  status         String    @default("pending")
+  chunkCount     Int       @default(0)
+  syncedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([repoFullName])
+  @@map("repo_sync")
 }
 
 model PullRequest {
